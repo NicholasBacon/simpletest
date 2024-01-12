@@ -129,13 +129,8 @@ int main(int argc, char *argv[]) {
 
     fflush(stdout);
     int rank, num_procs;
-    int maxsq = atoi(argv[1]);
-    int kokkos = atoi(argv[2]);
-
-
-
-
-
+    int maxsq = 1;
+    int kokkos = atoi(argv[1]);
 
 
     MPI_Init(&argc, &argv);
@@ -143,6 +138,9 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     Kokkos::initialize(argc, argv);
+    while (maxsq*maxsq<num_procs){
+        maxsq++;
+    }
 
 
     fflush(stdout);
@@ -158,39 +156,51 @@ int main(int argc, char *argv[]) {
 
     setAddress(buffer);
     for (int workx = 1; workx < 101; workx = 10 * workx) {
+        _size = 51200;
+        MPI_Datatype oldType = MPI_FLOAT;
+        MPI_Datatype type;
+        MPI_Type_contiguous(_size, oldType, &type);
+        MPI_Type_commit(&type);
+        int size_0;
+        MPI_Type_size(type, &size_0);
 
 
-        for (int sq = 2; sq < maxsq; ++sq) {
+        double singalwork = MPI_Wtime();
+        for (int zz = 0; zz < testamont; ++zz) {
+
+            for (int j = 0; j < workx; ++j) {
+                doWork(a);
+            }
+
+        }
+        double work = (MPI_Wtime() - singalwork) / testamont;
+        printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", 0, 1, workx, size_0, work, 0, work);
+        printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", 1, 1, workx, size_0, work, 0, work);
+        fflush(stdout);
+    }
+
+    for (int sq = 2; sq < maxsq+1; ++sq) {
 
 
-            int x = rank % sq;
-            int y = rank / sq;
+        for (int workx = 1; workx < 101; workx = 10 * workx) {
 
-
-            int left = y * sq + positive_modulo((x - 1), sq);
-            int right = y * sq + positive_modulo((x + 1), sq);
-            int top = positive_modulo((y + 1), sq) * sq + x;
-            int bottom = positive_modulo((y - 1), sq) * sq + x;
-
-        
-        
 
             MPI_Barrier(MPI_COMM_WORLD);
- 
+
             //warmup
             if (sq * sq > rank) {
-               for (int zz = 0; zz < 100; ++zz) {
+                for (int zz = 0; zz < 100; ++zz) {
                     MPI_Request request[8];
 
-                        MPI_Irecv(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[0]);
-                        MPI_Irecv(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[1]);
-                        MPI_Irecv(resvR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[2]);
-                        MPI_Irecv(resvL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[3]);
-                        MPI_Isend(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[4]);
-                        MPI_Isend(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[5]);
-                        MPI_Isend(sendL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[6]);
-                        MPI_Isend(sendR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[7]);
-                        MPI_Waitall(8, request, MPI_STATUSES_IGNORE);
+                    MPI_Irecv(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[0]);
+                    MPI_Irecv(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[1]);
+                    MPI_Irecv(resvR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[2]);
+                    MPI_Irecv(resvL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[3]);
+                    MPI_Isend(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[4]);
+                    MPI_Isend(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[5]);
+                    MPI_Isend(sendL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[6]);
+                    MPI_Isend(sendR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[7]);
+                    MPI_Waitall(8, request, MPI_STATUSES_IGNORE);
                 }
             }
             MPI_Barrier(MPI_COMM_WORLD);
@@ -282,7 +292,7 @@ int main(int argc, char *argv[]) {
                 double totaltime = total / times0.size();
                 MPI_Type_free(&type);
                 MPI_Type_free(&type1);
-                printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n",kokkos, sq, workx, size_0, work, send, totaltime);
+                printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", kokkos, sq, workx, size_0, work, send, totaltime);
                 fflush(stdout);
             }
         }
