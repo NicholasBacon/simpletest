@@ -156,7 +156,7 @@ int main(int argc, char *argv[]) {
 
     setAddress(buffer);
     for (int workx = 1; workx < 101; workx = 10 * workx) {
-        _size = 51200;
+        _size = maxamout;
         MPI_Datatype oldType = MPI_FLOAT;
         MPI_Datatype type;
         MPI_Type_contiguous(_size, oldType, &type);
@@ -177,36 +177,45 @@ int main(int argc, char *argv[]) {
         printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", 0, 1, workx, size_0, work, 0, work);
         printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", 1, 1, workx, size_0, work, 0, work);
         fflush(stdout);
-        MPI_Type_free(&type);
     }
 
     for (int sq = 2; sq < maxsq+1; ++sq) {
 
 
-        for (int workx = 1; workx < 101; workx = 10 * workx) {
 
+
+        for (int workx = 1; workx < 101; workx = 10 * workx) {
+            int x = rank % sq;
+            int y = rank / sq;
+
+
+            int left = y * sq + positive_modulo((x - 1), sq);
+            int right = y * sq + positive_modulo((x + 1), sq);
+            int top = positive_modulo((y + 1), sq) * sq + x;
+            int bottom = positive_modulo((y - 1), sq) * sq + x;
 
             MPI_Barrier(MPI_COMM_WORLD);
+
 
             //warmup
             if (sq * sq > rank) {
                 for (int zz = 0; zz < 100; ++zz) {
                     MPI_Request request[8];
 
-                    MPI_Irecv(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[0]);
-                    MPI_Irecv(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[1]);
-                    MPI_Irecv(resvR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[2]);
-                    MPI_Irecv(resvL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[3]);
-                    MPI_Isend(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[4]);
-                    MPI_Isend(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[5]);
-                    MPI_Isend(sendL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[6]);
-                    MPI_Isend(sendR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[7]);
+                    MPI_Irecv(topBuff, maxamout, MPI_FLOAT, top, 123, MPI_COMM_WORLD, &request[0]);
+                    MPI_Irecv(bottomBuff, maxamout, MPI_FLOAT, bottom, 123, MPI_COMM_WORLD, &request[1]);
+                    MPI_Irecv(resvR.data(), maxamout, MPI_FLOAT, right, 123, MPI_COMM_WORLD, &request[2]);
+                    MPI_Irecv(resvL.data(), maxamout, MPI_FLOAT, left, 123, MPI_COMM_WORLD, &request[3]);
+                    MPI_Isend(topBuff, maxamout, MPI_FLOAT, top, 123, MPI_COMM_WORLD, &request[4]);
+                    MPI_Isend(bottomBuff, maxamout, MPI_FLOAT, bottom, 123, MPI_COMM_WORLD, &request[5]);
+                    MPI_Isend(sendL.data(), maxamout, MPI_FLOAT, left, 123, MPI_COMM_WORLD, &request[6]);
+                    MPI_Isend(sendR.data(), maxamout, MPI_FLOAT, right, 123, MPI_COMM_WORLD, &request[7]);
                     MPI_Waitall(8, request, MPI_STATUSES_IGNORE);
                 }
             }
             MPI_Barrier(MPI_COMM_WORLD);
             if (sq * sq > rank) {
-                int i = 51200 / (sq * sq);
+                int i = maxamout / (sq * sq);
 
                 _size = i;
                 MPI_Datatype oldType = MPI_FLOAT;
