@@ -6,7 +6,6 @@
 #include "mpi.h"
 #include <math.h>
 
-
 #include <list>
 #include <cstring>    /* memset & co. */
 #include <ctime>
@@ -23,7 +22,6 @@
 #include<unistd.h>
 #include <iostream>
 
-//#include "input.hpp"
 #include <iostream>
 #include <fstream>
 #include "Kokkos_Core.hpp"
@@ -37,357 +35,255 @@
 #include <cuda_runtime.h>
 #include <list>
 
-#define FS_LAYOUT Kokkos::LayoutRight
-//#define FS_LAYOUT Kokkos::LayoutLeft
-//#define FS_LAYOUT Kokkos::DefaultExecutionSpace::array_layout
 
-// double view types
-typedef typename Kokkos::View<float ******, FS_LAYOUT>
-FS6D;
-typedef typename Kokkos::View<float *****, FS_LAYOUT> FS5D;
-typedef typename Kokkos::View<float ****, FS_LAYOUT> FS4D;
-typedef typename Kokkos::View<float ***, FS_LAYOUT> FS3D;
-typedef typename Kokkos::View<float **, FS_LAYOUT> FS2D;
+#define FS_LAYOUT Kokkos::LayoutRight
 typedef typename Kokkos::View<float *, FS_LAYOUT> FS1D;
 
-typedef typename Kokkos::View<float ******, FS_LAYOUT>::HostMirror FS6DH;
-typedef typename Kokkos::View<float *****, FS_LAYOUT>::HostMirror FS5DH;
-typedef typename Kokkos::View<float ****, FS_LAYOUT>::HostMirror FS4DH;
-typedef typename Kokkos::View<float ***, FS_LAYOUT>::HostMirror FS3DH;
-typedef typename Kokkos::View<float **, FS_LAYOUT>::HostMirror FS2DH;
-typedef typename Kokkos::View<float *, FS_LAYOUT>::HostMirror FS1DH;
+int _size;
+void *topBuff;
+void *bottomBuff;
+void *leftBuff;
+void *rightBuff;
+long long int maxamout = 51200;
+long long int maxbuffercount = maxamout * maxamout;
 
-// int view types
-typedef typename Kokkos::View<int ******, FS_LAYOUT> FS6D_I;
-typedef typename Kokkos::View<int *****, FS_LAYOUT> FS5D_I;
-typedef typename Kokkos::View<int ****, FS_LAYOUT> FS4D_I;
-typedef typename Kokkos::View<int ***, FS_LAYOUT> FS3D_I;
-typedef typename Kokkos::View<int **, FS_LAYOUT> FS2D_I;
-typedef typename Kokkos::View<int *, FS_LAYOUT> FS1D_I;
-
-typedef typename Kokkos::View<int ******, FS_LAYOUT>::HostMirror FS6DH_I;
-typedef typename Kokkos::View<int *****, FS_LAYOUT>::HostMirror FS5DH_I;
-typedef typename Kokkos::View<int ****, FS_LAYOUT>::HostMirror FS4DH_I;
-typedef typename Kokkos::View<int ***, FS_LAYOUT>::HostMirror FS3DH_I;
-typedef typename Kokkos::View<int **, FS_LAYOUT>::HostMirror FS2DH_I;
-typedef typename Kokkos::View<int *, FS_LAYOUT>::HostMirror FS1DH_I;
-
-typedef typename Kokkos::MDRangePolicy<Kokkos::Rank < 2>>
-policy_f;
-typedef typename Kokkos::MDRangePolicy<Kokkos::Rank < 3>>
-policy_f3;
-typedef typename Kokkos::MDRangePolicy<Kokkos::Rank < 4>>
-policy_f4;
-typedef typename Kokkos::MDRangePolicy<Kokkos::Rank < 5>>
-policy_f5;
+void doWork(FS1D a) {
 
 
-int n = 10;
-int startbytes = 1;
-int endbytes = 150000;
+    int size = _size;
 
-bool server = false;
-int testcount = 10;
-int testamount = 10;
-//int NG_START_PACKET_SIZE = 1028;
-//int max_datasize = 10000000 * 2;
-int maxbuffercount = 100000000; // 100M floats
-
-
-bool selfPack;
-int total_size;
+    Kokkos::parallel_for(size * size - size * 4, KOKKOS_LAMBDA(
+    const int spot) {
+        int y = spot / size + 1;
+        int x = spot % size + 1;
+        float temp = a(y * size + (x + 1)) + a(y * size + (x - 1)) + a((y + 1) * size + x) + a((y - 1) * size + x) +
+                     a((y - 1) * size + (x + 1)) + a((y - 1) * size + (x - 1)) + a((y + 1) * size + (x - 1)) +
+                     a((y + 1) * size + (x + 1));
 
 
-void pingandpong(FS1D a, int amount, int count, int blocklength, int stride, FS1D temp, int rank, bool copy) {
+        if (temp == 2.0) {
+            if (a(y * size + x) == 1.0) {
+                a(y * size + x) = 1.0;
+            }
+        } else if (temp == 3.0) {
 
-
-    int MPI_TAG2 = 1;
-    auto kok = Kokkos::MDRangePolicy < Kokkos::Rank < 3 >> ( { 0, 0, 0 },
-    { amount, count, blocklength } );
-
-    std::list<double> times0;
-    for (int k = 0; k < testcount; ++k) {
-
-        double t0 = MPI_Wtime();
-        for (int j = 0; j < testamount; ++j) {
-            if (rank % 2 == 0) {
-
-                Kokkos::parallel_for(
-                        kok, KOKKOS_LAMBDA(
-                const int am,
-                const int c,
-                const int b) {
-
-                    temp(am * count * blocklength + c * blocklength + b) = a(
-                            am * count * stride + c * stride + b);
-
-                });
-
-                Kokkos::fence();
-
-
-                int temp_rank = rank + 1;
-                MPI_Send(temp.data(), amount * count * blocklength, MPI_FLOAT, temp_rank, MPI_TAG2,
-                         MPI_COMM_WORLD);
-                MPI_Recv(temp.data(), amount * count * blocklength, MPI_FLOAT, temp_rank, MPI_TAG2,
-                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-//        if (copy) {
-//            Kokkos::deep_copy(recv, recv_H);
-//        }
-
-                Kokkos::parallel_for(
-                        kok, KOKKOS_LAMBDA(
-                const int am,
-                const int c,
-                const int b) {
-                    a(am * count * stride + c * stride + b) = temp(
-                            am * count * blocklength + c * blocklength + b);
-                });
-                Kokkos::fence();
+            if (a(y * size + x) == 1.0) {
+                a(y * size + x) = 1.0;
             } else {
-                int temp_rank = rank - 1;
+                a(y * size + x) = 1.0;
 
 
-                MPI_Recv(temp.data(), amount * count * blocklength, MPI_FLOAT, temp_rank, MPI_TAG2,
-                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                Kokkos::parallel_for(
-                        kok, KOKKOS_LAMBDA(
-                const int am,
-                const int c,
-                const int b) {
-                    a(am * count * blocklength + c * blocklength + b) = temp(
-                            am * count * blocklength + c * blocklength + b);
-                });
-                Kokkos::fence();
-                Kokkos::parallel_for(
-                        kok, KOKKOS_LAMBDA(
-                const int am,
-                const int c,
-                const int b) {
-
-                    temp(am * count * blocklength + c * blocklength + b) = a(
-                            am * count * stride + c * stride + b);
-
-                });
-                Kokkos::fence();
-                MPI_Send(temp.data(), amount * count * blocklength, MPI_FLOAT, temp_rank, MPI_TAG2,
-                         MPI_COMM_WORLD);
             }
+        } else {
 
-        }
-        double tfinal = (MPI_Wtime() - t0) / (testamount);
-
-
-        times0.push_back(tfinal);
-
-
-    }
-
-    times0.sort();
-    int count1 = 0;
-    double low = 0;
-    double med = 0;
-    double high = 0;
-    double total = 0;
-    for (const auto &item: times0) {
-        total += item;
-        if (count1 == 0) {
-            low = item;
-        }
-        if (count1 == (testcount) / 2) {
-            med = item;
-        }
-        if (count1 == testcount - 1) {
-            high = item;
+            a(y * size + x) = 0.0;
         }
 
-        count1++;
+        a(y * size + x) = 1.0;
 
-    }
+    });
+    Kokkos::fence();
 
-    double mean0 = total / times0.size();
-
-
-    printf("h-%i,%i,%i,%i,%15.9f,%15.9f,%15.9f,%15.9f\n", amount * count * blocklength * 4, count, blocklength, stride,
-           mean0, low, med, high);
-    fflush(stdout);
 }
 
+void pack(FS1D l, FS1D r, FS1D buff) {
 
-void pongandping(void *buffer, int i, int rank) {
-
-    MPI_Status status;
-    int size_s;
-
-
-    std::list<double> times0;
-    for (int k = 0; k < testcount; ++k) {
-
-        double t0 = MPI_Wtime();
-        for (int j = 0; j < testamount; ++j) {
-            if (rank == 0) {
-                MPI_Send(buffer, i, MPI_FLOAT, 1, 0, MPI_COMM_WORLD);
-                MPI_Recv(buffer, i, MPI_FLOAT, 1, 0, MPI_COMM_WORLD, &status);
-            }
-            if (rank == 1) {
-                MPI_Recv(buffer, i, MPI_FLOAT, 0, 0, MPI_COMM_WORLD, &status);
-                MPI_Send(buffer, i, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
-            }
-        }
-        double tfinal = (MPI_Wtime() - t0) / (testamount);
-
-
-        times0.push_back(tfinal);
-
-
-    }
-
-    times0.sort();
-    int count = 0;
-    double low = 0;
-    double med = 0;
-    double high = 0;
-    double total = 0;
-    for (const auto &item: times0) {
-        total += item;
-        if (count == 0) {
-            low = item;
-        }
-        if (count == (testcount) / 2) {
-            med = item;
-        }
-        if (count == testcount - 1) {
-            high = item;
-        }
-
-        count++;
-
-    }
-
-    double mean0 = total / times0.size();
-
-
-    printf("e-%i,%15.9f,%15.9f,%15.9f,%15.9f\n", i * 4, mean0, low, med, high);
-    fflush(stdout);
-
+    int size = _size;
+    Kokkos::parallel_for(size, KOKKOS_LAMBDA(
+    const int spot) {
+        l[spot] = buff[spot * size];
+        r[spot] = buff[spot * size + size - 1];
+    });
+    Kokkos::fence();
 
 }
 
 
-void pingpong(void *buffer, int i, int rank, MPI_Datatype datatype, int x, int y, int z) {
+void unpack(FS1D l, FS1D r, FS1D buff) {
 
-    MPI_Status status;
-    int size_s;
-
-
-    MPI_Type_size(datatype, &size_s);
-    std::list<double> times0;
-    for (int k = 0; k < testcount; ++k) {
-
-        double t0 = MPI_Wtime();
-        for (int j = 0; j < testamount; ++j) {
-            if (rank == 0) {
-                MPI_Send(buffer, i, datatype, 1, 0, MPI_COMM_WORLD);
-                MPI_Recv(buffer, i, datatype, 1, 0, MPI_COMM_WORLD, &status);
-            }
-            if (rank == 1) {
-                MPI_Recv(buffer, i, datatype, 0, 0, MPI_COMM_WORLD, &status);
-                MPI_Send(buffer, i, datatype, 0, 0, MPI_COMM_WORLD);
-            }
-        }
-        double tfinal = (MPI_Wtime() - t0) / (testamount);
-
-
-        times0.push_back(tfinal);
-
-
-    }
-
-    times0.sort();
-    int count = 0;
-    double low = 0;
-    double med = 0;
-    double high = 0;
-    double total = 0;
-    for (const auto &item: times0) {
-        total += item;
-        if (count == 0) {
-            low = item;
-        }
-        if (count == (testcount) / 2) {
-            med = item;
-        }
-        if (count == testcount - 1) {
-            high = item;
-        }
-
-        count++;
-
-    }
-
-    double mean0 = total / times0.size();
-
-
-    printf("d-%i,%i,%i,%i,%15.9f,%15.9f,%15.9f,%15.9f\n", i * size_s, x, y, z, mean0, low, med, high);
-    fflush(stdout);
-
+    int size = _size;
+    Kokkos::parallel_for(size, KOKKOS_LAMBDA(
+    const int spot) {
+        buff[spot * size] = l[spot];
+        buff[spot * size + size - 1] = r[spot];
+    });
+    Kokkos::fence();
 
 }
 
+
+void setAddress(float *buff) {
+    topBuff = buff;
+    bottomBuff = buff + (_size * (_size - 1));
+    leftBuff = buff;
+    rightBuff = buff + _size - 1;
+
+}
+
+int positive_modulo(int i, int n) {
+    return (i % n + n) % n;
+}
 
 int main(int argc, char *argv[]) {
 
 
+    fflush(stdout);
     int rank, num_procs;
+    int maxsq = atoi(argv[1]);
+    int kokkos =0;
+    if (argc <3) {
+        int kokkos = atoi(argv[2]);
+    }
+
+
+
+
+
+
     MPI_Init(&argc, &argv);
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     Kokkos::initialize(argc, argv);
 
 
-
+    fflush(stdout);
     FS1D a = Kokkos::View<float *, FS_LAYOUT>("data", maxbuffercount);
-    FS1D holder = Kokkos::View<float *, FS_LAYOUT>("holder", maxbuffercount);
+    FS1D sendL = Kokkos::View<float *, FS_LAYOUT>("data", maxamout);
+    FS1D resvL = Kokkos::View<float *, FS_LAYOUT>("data", maxamout);
+    FS1D sendR = Kokkos::View<float *, FS_LAYOUT>("data", maxamout);
+    FS1D resvR = Kokkos::View<float *, FS_LAYOUT>("data", maxamout);
+    auto *buffer = (float *) a.data();
 
-    char *buffer = (char *) a.data();
-
-    server = rank == 0;
-
-    for (int i = 1; i <= 10; ++i) {
-        for (int j = 1; j <= i; ++j) {
-            for (int k = 1; k <= j; ++k) {
+    int testamont = 1000;
 
 
+    setAddress(buffer);
+    for (int workx = 1; workx < 101; workx = 10 * workx) {
+
+
+        for (int sq = 2; sq < 9; ++sq) {
+
+
+            int x = rank % sq;
+            int y = rank / sq;
+
+
+            int left = y * sq + positive_modulo((x - 1), sq);
+            int right = y * sq + positive_modulo((x + 1), sq);
+            int top = positive_modulo((y + 1), sq) * sq + x;
+            int bottom = positive_modulo((y - 1), sq) * sq + x;
+
+
+
+//
+
+            MPI_Barrier(MPI_COMM_WORLD);
+
+
+            if (sq * sq > rank) {
+
+                int i = 51200 / (sq * sq);
+
+                _size = i;
                 MPI_Datatype oldType = MPI_FLOAT;
                 MPI_Datatype type;
-                MPI_Type_vector(k, j, i, oldType, &type);
+                MPI_Type_contiguous(_size, oldType, &type);
+                MPI_Datatype oldType1 = MPI_FLOAT;
+                MPI_Datatype type1;
+                MPI_Type_contiguous(_size, oldType1, &type1);
 
                 MPI_Type_commit(&type);
-//                printf("datatype- %i %i %i\n ",  k, k, j);
+                MPI_Type_commit(&type1);
+                int size_0;
+                int size_1;
 
-                for (int amount = 1; amount < 200000; amount *= 2) {
+                MPI_Type_size(type, &size_0);
+                MPI_Type_size(type, &size_1);
 
-                    pingpong(buffer, amount, rank, type, k, j, i);
-                    MPI_Barrier(MPI_COMM_WORLD );
-                    pingandpong(a, amount, k, j, i, holder, rank, false);
-                    MPI_Barrier(MPI_COMM_WORLD );
-                    pongandping(buffer, amount * k * j, rank);
-                    MPI_Barrier(MPI_COMM_WORLD );
 
+                std::list<double> times0;
+                std::list<double> times1;
+                std::list<double> times2;
+
+
+                for (int zz = 0; zz < testamont; ++zz) {
+                    double t0 = MPI_Wtime();
+                    MPI_Request request[8];
+
+                    if (kokkos) {
+
+                        MPI_Irecv(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[0]);
+                        MPI_Irecv(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[1]);
+                        MPI_Irecv(resvR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[2]);
+                        MPI_Irecv(resvL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[3]);
+                        MPI_Isend(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[4]);
+                        MPI_Isend(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[5]);
+                        pack(sendL, sendR, a);
+                        MPI_Isend(sendL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[6]);
+                        MPI_Isend(sendR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[7]);
+                        MPI_Waitall(8, request, MPI_STATUSES_IGNORE);
+                        unpack(resvL, resvR, a);
+                    } else {
+                        MPI_Irecv(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[0]);
+                        MPI_Irecv(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[1]);
+                        MPI_Irecv(resvR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[2]);
+                        MPI_Irecv(resvL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[3]);
+                        MPI_Isend(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[4]);
+                        MPI_Isend(bottomBuff, 1, type, bottom, 123, MPI_COMM_WORLD, &request[5]);
+                        MPI_Isend(sendL.data(), 1, type, left, 123, MPI_COMM_WORLD, &request[6]);
+                        MPI_Isend(sendR.data(), 1, type, right, 123, MPI_COMM_WORLD, &request[7]);
+                        MPI_Waitall(8, request, MPI_STATUSES_IGNORE);
+                    }
+
+
+                    double sendingData = MPI_Wtime();
+                    for (int j = 0; j < workx; ++j) {
+                        doWork(a);
+                    }
+
+                    double work = MPI_Wtime();
+
+                    times0.push_back(work - sendingData);
+                    times1.push_back(sendingData - t0);
+                    times2.push_back(work - t0);
                 }
 
 
+                double totalsend = 0;
+                double totalwork = 0;
+                double total = 0;
+                for (const auto &item: times0) {
+                    totalwork += item;
+
+                }
+
+                for (const auto &item: times1) {
+                    totalsend += item;
+
+                }
+                for (const auto &item: times2) {
+                    total += item;
+
+                }
+                double work = totalwork / times0.size();
+                double send = totalsend / times0.size();
+                double totaltime = total / times0.size();
                 MPI_Type_free(&type);
+                MPI_Type_free(&type1);
+                printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n",kokkos, sq, workx, size_0, work, send, totaltime);
+                fflush(stdout);
+
 
             }
+
+
         }
     }
-
-
     MPI_Finalize();
     Kokkos::finalize();
 
-
     return 0;
 }
+
+
