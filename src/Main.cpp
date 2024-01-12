@@ -177,6 +177,7 @@ int main(int argc, char *argv[]) {
         printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", 0, 1, workx, size_0, work, 0, work);
         printf("p-%i-%i-%i-%i,%15.9f,%15.9f,%15.9f\n", 1, 1, workx, size_0, work, 0, work);
         fflush(stdout);
+        MPI_Type_free(&type);
     }
 
     for (int sq = 2; sq < maxsq+1; ++sq) {
