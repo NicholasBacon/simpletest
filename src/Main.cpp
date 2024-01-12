@@ -130,10 +130,8 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
     int rank, num_procs;
     int maxsq = atoi(argv[1]);
-    int kokkos =0;
-    if (argc <3) {
-        int kokkos = atoi(argv[2]);
-    }
+    int kokkos = atoi(argv[2]);
+
 
 
 
@@ -173,10 +171,6 @@ int main(int argc, char *argv[]) {
             int right = y * sq + positive_modulo((x + 1), sq);
             int top = positive_modulo((y + 1), sq) * sq + x;
             int bottom = positive_modulo((y - 1), sq) * sq + x;
-
-
-
-//
 
             MPI_Barrier(MPI_COMM_WORLD);
 
