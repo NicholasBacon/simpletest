@@ -16,6 +16,12 @@ spacktivate .
 cmake .
 make clean
 make
+
+
+
+
+
+
 mkdir files
 lalloc 9  lrun  -M -gpu -N 9 -T 4 -g 1 ping_pong >files/mixed
 python python.py
