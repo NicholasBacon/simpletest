@@ -100,7 +100,17 @@ void pack(FS1D l, FS1D r, FS1D buff) {
 
 }
 
+void unpacknofence(FS1D l, FS1D r, FS1D buff) {
 
+    int size = _size;
+    Kokkos::parallel_for(size, KOKKOS_LAMBDA(
+    const int spot) {
+        buff[spot * size] = l[spot];
+        buff[spot * size + size - 1] = r[spot];
+    });
+
+
+}
 void unpack(FS1D l, FS1D r, FS1D buff) {
 
     int size = _size;
@@ -297,6 +307,7 @@ int main(int argc, char *argv[]) {
 
 
                     if (false) {
+                        //ideas for speedups????
                         MPI_Request request[4];
                         MPI_Request unpacked[4];
 
@@ -310,9 +321,11 @@ int main(int argc, char *argv[]) {
                         pack(sendL, sendR, a);
                         MPI_Isend(sendR.data(), 1, type, right, 123, MPI_COMM_WORLD, &unpacked[2]);
                         MPI_Isend(sendL.data(), 1, type, left, 123, MPI_COMM_WORLD, &unpacked[4]);
+                        MPI_Waitall(4, unpacked, MPI_STATUSES_IGNORE);
+                        unpacknofence(resvL, resvR, a);
                         MPI_Waitall(4, request, MPI_STATUSES_IGNORE);
-                        unpack(resvL, resvR, a);
-                        MPI_Waitall(4, request, MPI_STATUSES_IGNORE);
+                        Kokkos::fence();
+
                     } else {
                         MPI_Request request[8];
                         MPI_Irecv(topBuff, 1, type, top, 123, MPI_COMM_WORLD, &request[0]);
@@ -369,9 +382,7 @@ int main(int argc, char *argv[]) {
             MPI_Barrier(MPI_COMM_WORLD);
             if (sq * sq > rank) {
 
-//    for (int i = 200; i <maxamout ; i=i*2) {
-//        printf("%i\n",i);
-//    }
+
                 int i = maxamout / (sq * sq);
 
                 _size = i;
